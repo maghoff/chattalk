@@ -1,0 +1,7 @@
+[package]
+name = "chattalk"
+version = "0.1.0"
+authors = ["mag"]
+
+[dependencies]
+plaintalk = "~0.0.4"
