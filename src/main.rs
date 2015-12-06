@@ -43,26 +43,6 @@ impl convert::From<plaintalk::pullparser::Error> for ClientError {
 const BASIC_STRUCTURE:&'static[u8] = b"Invalid format. Basic structure of all messages is: <message-ID> <command> [command arguments...]";
 const CMD_JOIN:&'static[u8] = b"Usage: <msg-id> join <channel-name>";
 
-fn read_field_as_string(message: &mut pullparser::Message) -> Result<Option<String>, pullparser::Error> {
-	let mut string = String::new();
-	match try!{message.get_field()} {
-		Some(mut field) => {
-			try!{field.read_to_string(&mut string)};
-			Ok(Some(string))
-		},
-		None => Ok(None)
-	}
-}
-
-fn read_field_as_slice<'a, 'b: 'a+'b>(message: &mut pullparser::Message, buffer: &'b mut[u8]) -> Result<Option<&'a [u8]>, pullparser::Error> {
-	match try!{message.read_field(buffer)} {
-		Some(len) => {
-			Ok(Some(&buffer[0..len]))
-		},
-		None => Ok(None)
-	}
-}
-
 enum ProtocolError {
 	InvalidCommand(&'static [u8]),
 	PlaintalkError(ClientError),
@@ -97,11 +77,11 @@ fn client_core(stream: TcpStream) -> Result<(), ClientError> {
 	let mut command_buf = [0u8; 10];
 
 	while let Some(mut message) = try!{parser.get_message()} {
-		let msg_id = try!{read_field_as_slice(&mut message, &mut msg_id_buf)}.unwrap();
+		let msg_id = try!{message.read_field_as_slice(&mut msg_id_buf)}.unwrap();
 
 		match || -> Result<(), ProtocolError> {
 			let command = try!{
-					try!{read_field_as_slice(&mut message, &mut command_buf)}
+					try!{message.read_field_as_slice(&mut command_buf)}
 					.ok_or(ProtocolError::InvalidCommand(BASIC_STRUCTURE))
 				};
 
@@ -113,16 +93,12 @@ fn client_core(stream: TcpStream) -> Result<(), ClientError> {
 				},
 				b"join" => {
 					let channel = try!{
-							try!{read_field_as_string(&mut message)}
+							try!{message.read_field_as_string()}
 							.ok_or(ProtocolError::InvalidCommand(CMD_JOIN))
 						};
 
-					match try!{message.get_field()} {
-						Some(mut extra_field) => {
-							try!{extra_field.ignore_rest()};
-							return Err(ProtocolError::InvalidCommand(CMD_JOIN));
-						},
-						None => ()
+					if !message.at_end() {
+						return Err(ProtocolError::InvalidCommand(CMD_JOIN));
 					}
 
 					try!{generator.write_message(&[b"*", b"join", b"user", &channel.into_bytes()])};
