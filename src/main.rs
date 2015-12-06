@@ -1,9 +1,10 @@
 extern crate plaintalk;
 
 use std::convert;
-use std::io::{self,BufReader,BufWriter};
+use std::io::{self,Read,BufReader,BufWriter};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
+use plaintalk::{pullparser, pushgenerator};
 use plaintalk::pullparser::PullParser;
 use plaintalk::pushgenerator::PushGenerator;
 
@@ -40,6 +41,50 @@ impl convert::From<plaintalk::pullparser::Error> for ClientError {
 }
 
 const BASIC_STRUCTURE:&'static[u8] = b"Invalid format. Basic structure of all messages is: <message-ID> <command> [command arguments...]";
+const CMD_JOIN:&'static[u8] = b"Usage: <msg-id> join <channel-name>";
+
+fn read_field_as_string(message: &mut pullparser::Message) -> Result<Option<String>, pullparser::Error> {
+	let mut string = String::new();
+	match try!{message.get_field()} {
+		Some(mut field) => {
+			try!{field.read_to_string(&mut string)};
+			Ok(Some(string))
+		},
+		None => Ok(None)
+	}
+}
+
+fn read_field_as_slice<'a, 'b: 'a+'b>(message: &mut pullparser::Message, buffer: &'b mut[u8]) -> Result<Option<&'a [u8]>, pullparser::Error> {
+	match try!{message.read_field(buffer)} {
+		Some(len) => {
+			Ok(Some(&buffer[0..len]))
+		},
+		None => Ok(None)
+	}
+}
+
+enum ProtocolError {
+	InvalidCommand(&'static [u8]),
+	PlaintalkError(ClientError),
+}
+
+impl convert::From<pullparser::Error> for ProtocolError {
+	fn from(err: pullparser::Error) -> ProtocolError {
+		ProtocolError::PlaintalkError(ClientError::from(err))
+	}
+}
+
+impl convert::From<pushgenerator::Error> for ProtocolError {
+	fn from(err: pushgenerator::Error) -> ProtocolError {
+		ProtocolError::PlaintalkError(ClientError::from(err))
+	}
+}
+
+impl convert::From<&'static str> for ProtocolError {
+	fn from(err: &'static str) -> ProtocolError {
+		ProtocolError::PlaintalkError(ClientError::from(err))
+	}
+}
 
 fn client_core(stream: TcpStream) -> Result<(), ClientError> {
 	let mut buf_reader = BufReader::new(&stream);
@@ -52,22 +97,55 @@ fn client_core(stream: TcpStream) -> Result<(), ClientError> {
 	let mut command_buf = [0u8; 10];
 
 	while let Some(mut message) = try!{parser.get_message()} {
-		let msg_id_len = try!{message.read_field(&mut msg_id_buf)}.unwrap();
-		let msg_id = &msg_id_buf[0..msg_id_len];
+		let msg_id = try!{read_field_as_slice(&mut message, &mut msg_id_buf)}.unwrap();
 
-		let command = match try!{message.read_field(&mut command_buf)} {
-			Some(len) => &command_buf[0..len],
-			None => {
-				try!{generator.write_message(&[&msg_id, b"error", BASIC_STRUCTURE])};
-				continue
-			}
-		};
+		match || -> Result<(), ProtocolError> {
+			let command = try!{
+					try!{read_field_as_slice(&mut message, &mut command_buf)}
+					.ok_or(ProtocolError::InvalidCommand(BASIC_STRUCTURE))
+				};
 
-		match command {
-			_ => {
+			match command {
+				b"protocol" => {
+					// TODO Implement protocol negotiation
+					try!{message.ignore_rest()};
+					try!{generator.write_message(&[ &msg_id, b"protocol", b"chattalk" ])};
+				},
+				b"join" => {
+					let channel = try!{
+							try!{read_field_as_string(&mut message)}
+							.ok_or(ProtocolError::InvalidCommand(CMD_JOIN))
+						};
+
+					match try!{message.get_field()} {
+						Some(mut extra_field) => {
+							try!{extra_field.ignore_rest()};
+							return Err(ProtocolError::InvalidCommand(CMD_JOIN));
+						},
+						None => ()
+					}
+
+					try!{generator.write_message(&[b"*", b"join", b"user", &channel.into_bytes()])};
+					try!{generator.write_message(&[&msg_id, b"ok"])};
+				},
+				_ => {
+					try!{message.ignore_rest()};
+					try!{generator.write_message(&[
+						&msg_id, b"error", b"invalid-command",
+						&format!("unknown command: {}", String::from_utf8_lossy(command)).into_bytes()
+					])};
+				},
+			};
+
+			Ok(())
+		}() {
+			Ok(()) => (),
+			Err(ProtocolError::InvalidCommand(usage)) => {
+				try!{generator.write_message(
+					&[&msg_id, b"error", b"invalid-command", &usage])};
 				try!{message.ignore_rest()};
-				try!{generator.write_message(&[&msg_id, b"error", b"unknown command"])};
 			},
+			Err(ProtocolError::PlaintalkError(err)) => return Err(err),
 		}
 	}
 
