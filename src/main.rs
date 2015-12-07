@@ -45,20 +45,10 @@ enum ProtocolError {
 	PlaintalkError(ClientError),
 }
 
-impl convert::From<pullparser::Error> for ProtocolError {
-	fn from(err: pullparser::Error) -> ProtocolError {
-		ProtocolError::PlaintalkError(ClientError::from(err))
-	}
-}
-
-impl convert::From<pushgenerator::Error> for ProtocolError {
-	fn from(err: pushgenerator::Error) -> ProtocolError {
-		ProtocolError::PlaintalkError(ClientError::from(err))
-	}
-}
-
-impl convert::From<&'static str> for ProtocolError {
-	fn from(err: &'static str) -> ProtocolError {
+impl<T> convert::From<T> for ProtocolError
+	where ClientError : convert::From<T>
+{
+	fn from(err: T) -> ProtocolError {
 		ProtocolError::PlaintalkError(ClientError::from(err))
 	}
 }
