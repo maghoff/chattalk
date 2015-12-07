@@ -66,6 +66,19 @@ impl convert::From<&'static str> for ProtocolError {
 	}
 }
 
+fn expect<T, E>(field: Result<Option<T>, E>, err: &'static [u8]) -> Result<T, ProtocolError>
+	where ProtocolError : convert::From<E>
+{
+	try!(field).ok_or(ProtocolError::InvalidCommand(err))
+}
+
+fn expect_end(message: &pullparser::Message, err: &'static [u8]) -> Result<(), ProtocolError> {
+	match message.at_end() {
+		true => Ok(()),
+		false => Err(ProtocolError::InvalidCommand(err))
+	}
+}
+
 fn client_core(stream: TcpStream) -> Result<(), ClientError> {
 	let mut buf_reader = BufReader::new(&stream);
 	let mut parser = PullParser::new(&mut buf_reader);
@@ -77,34 +90,25 @@ fn client_core(stream: TcpStream) -> Result<(), ClientError> {
 	let mut command_buf = [0u8; 10];
 
 	while let Some(mut message) = try!{parser.get_message()} {
-		let msg_id = try!{message.read_field_as_slice(&mut msg_id_buf)}.unwrap();
+		let msg_id = try!{message.read_field_as_slice(&mut msg_id_buf)}
+			.expect("PlainTalk parser yielded a message with zero fields");
 
 		match || -> Result<(), ProtocolError> {
-			let command = try!{
-					try!{message.read_field_as_slice(&mut command_buf)}
-					.ok_or(ProtocolError::InvalidCommand(BASIC_STRUCTURE))
-				};
-
-			match command {
+			match try!{expect(message.read_field_as_slice(&mut command_buf), BASIC_STRUCTURE)} {
 				b"protocol" => {
-					// TODO Implement protocol negotiation
 					try!{message.ignore_rest()};
+					try!{generator.write_message(&[b"*", b"note", b"'protocol' currently has no effect"])};
 					try!{generator.write_message(&[ &msg_id, b"protocol", b"chattalk" ])};
 				},
 				b"join" => {
-					let channel = try!{
-							try!{message.read_field_as_string()}
-							.ok_or(ProtocolError::InvalidCommand(CMD_JOIN))
-						};
+					let channel = try!{expect(message.read_field_as_string(), CMD_JOIN)};
+					try!{expect_end(&message, CMD_JOIN)};
 
-					if !message.at_end() {
-						return Err(ProtocolError::InvalidCommand(CMD_JOIN));
-					}
-
+					try!{generator.write_message(&[b"*", b"note", b"'join' currently has no effect"])};
 					try!{generator.write_message(&[b"*", b"join", b"user", &channel.into_bytes()])};
 					try!{generator.write_message(&[&msg_id, b"ok"])};
 				},
-				_ => {
+				command => {
 					try!{message.ignore_rest()};
 					try!{generator.write_message(&[
 						&msg_id, b"error", b"invalid-command",
