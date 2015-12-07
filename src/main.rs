@@ -76,6 +76,70 @@ fn expect_end(message: &pullparser::Message, err: &'static [u8]) -> Result<(), P
 	}
 }
 
+struct ClientConnection {
+	nick: String,
+	command_buf: [u8; 10],
+}
+
+impl ClientConnection {
+	fn new() -> ClientConnection {
+		ClientConnection {
+			nick: String::new(),
+			command_buf: [0u8; 10],
+		}
+	}
+
+	fn handle_message(
+		&mut self,
+		msg_id: &[u8],
+		message: &mut pullparser::Message,
+		generator: &mut pushgenerator::PushGenerator
+	) ->
+		Result<(), ProtocolError>
+	{
+		static BASIC_STRUCTURE:&'static[u8] =
+			b"Invalid format. Basic structure of all messages is: <message-ID> <command> [command arguments...]";
+
+		match try!{expect(message.read_field_as_slice(&mut self.command_buf), BASIC_STRUCTURE)} {
+			b"protocol" => {
+				try!{message.ignore_rest()};
+				try!{generator.write_message(&[b"*", b"note", b"'protocol' currently has no effect"])};
+				try!{generator.write_message(&[ &msg_id, b"protocol", b"chattalk" ])};
+			},
+			b"join" => {
+				static USAGE:&'static[u8] = b"Usage: <msg-id> join <channel-name>";
+
+				let channel = try!{expect(message.read_field_as_string(), USAGE)};
+				try!{expect_end(&message, USAGE)};
+
+				try!{generator.write_message(&[b"*", b"note", b"'join' currently has no effect"])};
+				try!{generator.write_message(&[b"*", b"join", &self.nick.as_bytes(), &channel.into_bytes()])};
+				try!{generator.write_message(&[&msg_id, b"ok"])};
+			},
+			b"nick" => {
+				static USAGE:&'static[u8] = b"Usage: <msg-id> nick <new-nick>";
+
+				let new_nick = try!{expect(message.read_field_as_string(), USAGE)};
+				try!{expect_end(&message, USAGE)};
+
+				try!{generator.write_message(&[b"*", b"nick", &self.nick.as_bytes(), &new_nick.as_bytes()])};
+				self.nick = new_nick;
+
+				try!{generator.write_message(&[&msg_id, b"ok"])};
+			},
+			command => {
+				try!{message.ignore_rest()};
+				try!{generator.write_message(&[
+					&msg_id, b"error", b"invalid-command",
+					&format!("unknown command: {}", String::from_utf8_lossy(command)).into_bytes()
+				])};
+			},
+		};
+
+		Ok(())
+	}
+}
+
 fn client_core(stream: TcpStream) -> Result<(), ClientError> {
 	let mut buf_reader = BufReader::new(&stream);
 	let mut parser = PullParser::new(&mut buf_reader);
@@ -84,43 +148,14 @@ fn client_core(stream: TcpStream) -> Result<(), ClientError> {
 	let mut generator = PushGenerator::new(&mut buf_writer);
 
 	let mut msg_id_buf = [0u8; 10];
-	let mut command_buf = [0u8; 10];
 
-	static BASIC_STRUCTURE:&'static[u8] =
-		b"Invalid format. Basic structure of all messages is: <message-ID> <command> [command arguments...]";
+	let mut client_connection = ClientConnection::new();
 
 	while let Some(mut message) = try!{parser.get_message()} {
 		let msg_id = try!{message.read_field_as_slice(&mut msg_id_buf)}
 			.expect("PlainTalk parser yielded a message with zero fields");
 
-		match || -> Result<(), ProtocolError> {
-			match try!{expect(message.read_field_as_slice(&mut command_buf), BASIC_STRUCTURE)} {
-				b"protocol" => {
-					try!{message.ignore_rest()};
-					try!{generator.write_message(&[b"*", b"note", b"'protocol' currently has no effect"])};
-					try!{generator.write_message(&[ &msg_id, b"protocol", b"chattalk" ])};
-				},
-				b"join" => {
-					static CMD_JOIN:&'static[u8] = b"Usage: <msg-id> join <channel-name>";
-
-					let channel = try!{expect(message.read_field_as_string(), CMD_JOIN)};
-					try!{expect_end(&message, CMD_JOIN)};
-
-					try!{generator.write_message(&[b"*", b"note", b"'join' currently has no effect"])};
-					try!{generator.write_message(&[b"*", b"join", b"user", &channel.into_bytes()])};
-					try!{generator.write_message(&[&msg_id, b"ok"])};
-				},
-				command => {
-					try!{message.ignore_rest()};
-					try!{generator.write_message(&[
-						&msg_id, b"error", b"invalid-command",
-						&format!("unknown command: {}", String::from_utf8_lossy(command)).into_bytes()
-					])};
-				},
-			};
-
-			Ok(())
-		}() {
+		match client_connection.handle_message(msg_id, &mut message, &mut generator) {
 			Ok(()) => (),
 			Err(ProtocolError::InvalidCommand(usage)) => {
 				try!{generator.write_message(
