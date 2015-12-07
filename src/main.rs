@@ -1,11 +1,12 @@
 extern crate plaintalk;
 
+mod client;
+
 use std::convert;
-use std::io::{self,Read,BufReader,BufWriter};
+use std::io::{self,BufReader,BufWriter};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
-use plaintalk::{pullparser, pushgenerator};
-use plaintalk::pullparser::PullParser;
+use plaintalk::pullparser::{self,PullParser};
 use plaintalk::pushgenerator::PushGenerator;
 
 #[derive(Debug)]
@@ -66,16 +67,18 @@ fn expect_end(message: &pullparser::Message, err: &'static [u8]) -> Result<(), P
 	}
 }
 
-struct ClientConnection {
+struct ClientConnection<'a> {
 	nick: String,
 	command_buf: [u8; 10],
+	generator: PushGenerator<'a>,
 }
 
-impl ClientConnection {
-	fn new() -> ClientConnection {
+impl<'a> ClientConnection<'a> {
+	fn new(generator: PushGenerator<'a>) -> ClientConnection<'a> {
 		ClientConnection {
 			nick: String::new(),
 			command_buf: [0u8; 10],
+			generator: generator,
 		}
 	}
 
@@ -83,7 +86,6 @@ impl ClientConnection {
 		&mut self,
 		msg_id: &[u8],
 		message: &mut pullparser::Message,
-		generator: &mut pushgenerator::PushGenerator
 	) ->
 		Result<(), ProtocolError>
 	{
@@ -93,8 +95,8 @@ impl ClientConnection {
 		match try!{expect(message.read_field_as_slice(&mut self.command_buf), BASIC_STRUCTURE)} {
 			b"protocol" => {
 				try!{message.ignore_rest()};
-				try!{generator.write_message(&[b"*", b"note", b"'protocol' currently has no effect"])};
-				try!{generator.write_message(&[ &msg_id, b"protocol", b"chattalk" ])};
+				try!{self.generator.write_message(&[b"*", b"note", b"'protocol' currently has no effect"])};
+				try!{self.generator.write_message(&[msg_id, b"ok", b"chattalk"])};
 			},
 			b"join" => {
 				static USAGE:&'static[u8] = b"Usage: <msg-id> join <channel-name>";
@@ -102,9 +104,9 @@ impl ClientConnection {
 				let channel = try!{expect(message.read_field_as_string(), USAGE)};
 				try!{expect_end(&message, USAGE)};
 
-				try!{generator.write_message(&[b"*", b"note", b"'join' currently has no effect"])};
-				try!{generator.write_message(&[b"*", b"join", &self.nick.as_bytes(), &channel.into_bytes()])};
-				try!{generator.write_message(&[&msg_id, b"ok"])};
+				try!{self.generator.write_message(&[b"*", b"note", b"'join' currently has no effect"])};
+				try!{self.generator.write_message(&[b"*", b"join", &self.nick.as_bytes(), &channel.into_bytes()])};
+				try!{self.generator.write_message(&[msg_id, b"ok"])};
 			},
 			b"nick" => {
 				static USAGE:&'static[u8] = b"Usage: <msg-id> nick <new-nick>";
@@ -112,15 +114,15 @@ impl ClientConnection {
 				let new_nick = try!{expect(message.read_field_as_string(), USAGE)};
 				try!{expect_end(&message, USAGE)};
 
-				try!{generator.write_message(&[b"*", b"nick", &self.nick.as_bytes(), &new_nick.as_bytes()])};
+				try!{self.generator.write_message(&[b"*", b"nick", &self.nick.as_bytes(), &new_nick.as_bytes()])};
 				self.nick = new_nick;
 
-				try!{generator.write_message(&[&msg_id, b"ok"])};
+				try!{self.generator.write_message(&[msg_id, b"ok"])};
 			},
 			command => {
 				try!{message.ignore_rest()};
-				try!{generator.write_message(&[
-					&msg_id, b"error", b"invalid-command",
+				try!{self.generator.write_message(&[
+					msg_id, b"error", b"invalid-command",
 					&format!("unknown command: {}", String::from_utf8_lossy(command)).into_bytes()
 				])};
 			},
@@ -128,35 +130,39 @@ impl ClientConnection {
 
 		Ok(())
 	}
+
+	fn handle_protocol(&mut self, mut parser: PullParser) -> Result<(), ClientError> {
+		let mut msg_id_buf = [0u8; 10];
+
+		while let Some(mut message) = try!{parser.get_message()} {
+			let msg_id = try!{message.read_field_as_slice(&mut msg_id_buf)}
+				.expect("PlainTalk parser yielded a message with zero fields");
+
+			match self.handle_message(msg_id, &mut message) {
+				Ok(()) => (),
+				Err(ProtocolError::InvalidCommand(usage)) => {
+					try!{self.generator.write_message(
+						&[&msg_id, b"error", b"invalid-command", &usage])};
+					try!{message.ignore_rest()};
+				},
+				Err(ProtocolError::PlaintalkError(err)) => return Err(err),
+			}
+		}
+
+		Ok(())
+	}
 }
 
 fn client_core(stream: TcpStream) -> Result<(), ClientError> {
 	let mut buf_reader = BufReader::new(&stream);
-	let mut parser = PullParser::new(&mut buf_reader);
+	let parser = PullParser::new(&mut buf_reader);
 
 	let mut buf_writer = BufWriter::new(&stream);
-	let mut generator = PushGenerator::new(&mut buf_writer);
+	let generator = PushGenerator::new(&mut buf_writer);
 
-	let mut msg_id_buf = [0u8; 10];
+	let mut client_connection = ClientConnection::new(generator);
 
-	let mut client_connection = ClientConnection::new();
-
-	while let Some(mut message) = try!{parser.get_message()} {
-		let msg_id = try!{message.read_field_as_slice(&mut msg_id_buf)}
-			.expect("PlainTalk parser yielded a message with zero fields");
-
-		match client_connection.handle_message(msg_id, &mut message, &mut generator) {
-			Ok(()) => (),
-			Err(ProtocolError::InvalidCommand(usage)) => {
-				try!{generator.write_message(
-					&[&msg_id, b"error", b"invalid-command", &usage])};
-				try!{message.ignore_rest()};
-			},
-			Err(ProtocolError::PlaintalkError(err)) => return Err(err),
-		}
-	}
-
-	Ok(())
+	client_connection.handle_protocol(parser)
 }
 
 fn handle_client(stream: TcpStream) {
