@@ -40,9 +40,6 @@ impl convert::From<plaintalk::pullparser::Error> for ClientError {
 	}
 }
 
-const BASIC_STRUCTURE:&'static[u8] = b"Invalid format. Basic structure of all messages is: <message-ID> <command> [command arguments...]";
-const CMD_JOIN:&'static[u8] = b"Usage: <msg-id> join <channel-name>";
-
 enum ProtocolError {
 	InvalidCommand(&'static [u8]),
 	PlaintalkError(ClientError),
@@ -89,6 +86,9 @@ fn client_core(stream: TcpStream) -> Result<(), ClientError> {
 	let mut msg_id_buf = [0u8; 10];
 	let mut command_buf = [0u8; 10];
 
+	static BASIC_STRUCTURE:&'static[u8] =
+		b"Invalid format. Basic structure of all messages is: <message-ID> <command> [command arguments...]";
+
 	while let Some(mut message) = try!{parser.get_message()} {
 		let msg_id = try!{message.read_field_as_slice(&mut msg_id_buf)}
 			.expect("PlainTalk parser yielded a message with zero fields");
@@ -101,6 +101,8 @@ fn client_core(stream: TcpStream) -> Result<(), ClientError> {
 					try!{generator.write_message(&[ &msg_id, b"protocol", b"chattalk" ])};
 				},
 				b"join" => {
+					static CMD_JOIN:&'static[u8] = b"Usage: <msg-id> join <channel-name>";
+
 					let channel = try!{expect(message.read_field_as_string(), CMD_JOIN)};
 					try!{expect_end(&message, CMD_JOIN)};
 
