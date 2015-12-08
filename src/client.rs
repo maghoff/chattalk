@@ -1,8 +1,9 @@
 extern crate plaintalk;
 
 use std::sync::{Arc,Mutex,PoisonError};
+use std::sync::mpsc::Sender;
 use std::convert;
-use std::io;
+use std::io::{self,Write};
 use plaintalk::pullparser::{self,PullParser};
 use plaintalk::pushgenerator::PushGenerator;
 
@@ -71,18 +72,20 @@ fn expect_end(message: &pullparser::Message, err: &'static [u8]) -> Result<(), P
 	}
 }
 
-pub struct ClientConnection<'a> {
+pub struct ClientConnection<T: Write> {
 	nick: String,
 	command_buf: [u8; 10],
-	generator: Arc<Mutex<PushGenerator<'a>>>,
+	generator: Arc<Mutex<PushGenerator<T>>>,
+	tx: Sender<::ShoutMessage>,
 }
 
-impl<'a> ClientConnection<'a> {
-	pub fn new(generator: Arc<Mutex<PushGenerator<'a>>>) -> ClientConnection<'a> {
+impl<T: Write> ClientConnection<T> {
+	pub fn new(generator: Arc<Mutex<PushGenerator<T>>>, tx: Sender<::ShoutMessage>) -> ClientConnection<T> {
 		ClientConnection {
 			nick: String::new(),
 			command_buf: [0u8; 10],
 			generator: generator,
+			tx: tx,
 		}
 	}
 
@@ -133,7 +136,8 @@ impl<'a> ClientConnection<'a> {
 				try!{expect_end(&message, USAGE)};
 
 				let mut generator = try!{self.generator.lock()};
-				try!{generator.write_message(&[b"*", b"shout", &self.nick.as_bytes(), &statement.as_bytes()])};
+// 				try!{generator.write_message(&[b"*", b"shout", &self.nick.as_bytes(), &statement.as_bytes()])};
+				self.tx.send(::ShoutMessage::Shout(self.nick.clone(), statement));
 				try!{generator.write_message(&[msg_id, b"ok"])};
 			},
 			command => {
