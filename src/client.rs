@@ -1,7 +1,7 @@
 extern crate plaintalk;
 
 use std::sync::{Arc,Mutex,PoisonError};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Sender,SendError};
 use std::convert;
 use std::io::{self,Write};
 use plaintalk::pullparser::{self,PullParser};
@@ -14,6 +14,7 @@ pub enum ClientError {
 	PushGenerator(plaintalk::pushgenerator::Error),
 	PullParser(plaintalk::pullparser::Error),
 	PoisonError,
+	SendError,
 }
 
 impl convert::From<io::Error> for ClientError {
@@ -43,6 +44,12 @@ impl convert::From<plaintalk::pullparser::Error> for ClientError {
 impl<T> convert::From<PoisonError<T>> for ClientError {
 	fn from(_err: PoisonError<T>) -> ClientError {
 		ClientError::PoisonError
+	}
+}
+
+impl convert::From<SendError<::ShoutMessage>> for ClientError {
+	fn from(_err: SendError<::ShoutMessage>) -> ClientError {
+		ClientError::SendError
 	}
 }
 
@@ -137,7 +144,7 @@ impl<T: Write> ClientConnection<T> {
 
 				let mut generator = try!{self.generator.lock()};
 // 				try!{generator.write_message(&[b"*", b"shout", &self.nick.as_bytes(), &statement.as_bytes()])};
-				self.tx.send(::ShoutMessage::Shout(self.nick.clone(), statement));
+				try!{self.tx.send(::ShoutMessage::Shout(self.nick.clone(), statement))};
 				try!{generator.write_message(&[msg_id, b"ok"])};
 			},
 			command => {

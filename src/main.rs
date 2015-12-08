@@ -19,7 +19,7 @@ fn client_core(stream: TcpStream, tx: Sender<ShoutMessage>) -> Result<(), client
 	let generator = Arc::new(Mutex::new(PushGenerator::new(buf_writer)));
 
 	let (tx2, rx2) = channel::<ClientMessage>();
-	tx.send(ShoutMessage::Join(tx2)).unwrap();
+	tx.send(ShoutMessage::Join(tx2.clone())).unwrap();
 
 	let mut client_connection = client::ClientConnection::new(generator.clone(), tx);
 
@@ -31,12 +31,16 @@ fn client_core(stream: TcpStream, tx: Sender<ShoutMessage>) -> Result<(), client
 						let mut generator = generator.lock().unwrap();
 						generator.write_message(&[b"*", b"shout", nick.as_bytes(), statement.as_bytes()]).unwrap();
 					}
+					ClientMessage::Terminate => return
 				}
 			}
 		});
 
-		client_connection.handle_protocol(parser)
+		let result = client_connection.handle_protocol(parser);
+		let _ = tx2.send(ClientMessage::Terminate);
+		result
 	})
+	//tx.send(ShoutMessage::Part(tx2)).unwrap();
 }
 
 fn handle_client(stream: TcpStream, tx: Sender<ShoutMessage>) {
@@ -51,6 +55,7 @@ fn handle_client(stream: TcpStream, tx: Sender<ShoutMessage>) {
 
 pub enum ClientMessage {
 	Shout(String, String),
+	Terminate,
 }
 
 pub enum ShoutMessage {
@@ -72,7 +77,13 @@ fn main() {
 				}
 				ShoutMessage::Shout(nick, statement) => {
 					for client in clients.iter() {
-						client.send(ClientMessage::Shout(nick.clone(), statement.clone())).unwrap();
+						match client.send(ClientMessage::Shout(nick.clone(), statement.clone())) {
+							Ok(()) => (),
+							Err(_) => {
+								// Ignore errors.
+								// TODO: Remove the client from `clients`.
+							}
+						}
 					}
 				}
 			}
