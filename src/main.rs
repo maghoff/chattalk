@@ -3,11 +3,11 @@ extern crate crossbeam;
 
 mod client;
 
-use std::io::{BufReader,BufWriter,Write};
+use std::io::{BufReader,BufWriter};
 use std::net::{TcpListener,TcpStream};
 use std::thread;
 use std::sync::{Arc,Mutex};
-use std::sync::mpsc::{channel,Sender,Receiver};
+use std::sync::mpsc::{channel,Sender};
 use plaintalk::pullparser::PullParser;
 use plaintalk::pushgenerator::PushGenerator;
 
@@ -67,9 +67,9 @@ fn main() {
 	let listener = TcpListener::bind("127.0.0.1:2203").unwrap();
 	println!("Listening to {}", listener.local_addr().unwrap());
 
-	let (tx, rx) = channel::<ShoutMessage>();
+	let (tx, rx) = channel();
 	thread::spawn(move|| {
-		let mut clients = Vec::<Sender<ClientMessage>>::new();
+		let mut clients = Vec::new();
 		while let Ok(message) = rx.recv() {
 			match message {
 				ShoutMessage::Join(client) => {

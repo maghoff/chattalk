@@ -161,7 +161,6 @@ impl<T: Write> ClientConnection<T> {
 				try!{expect_end(&message, USAGE)};
 
 				let mut generator = try!{self.generator.lock()};
-// 				try!{generator.write_message(&[b"*", b"shout", &self.nick.as_bytes(), &statement.as_bytes()])};
 				try!{self.tx.send(::ShoutMessage::Shout(self.nick.clone(), statement))};
 				try!{generator.write_message(&[msg_id, b"ok"])};
 			},
