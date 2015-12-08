@@ -104,9 +104,27 @@ impl<T: Write> ClientConnection<T> {
 		Result<(), ProtocolError>
 	{
 		static BASIC_STRUCTURE:&'static[u8] =
-			b"Invalid format. Basic structure of all messages is: <message-ID> <command> [command arguments...]";
+			b"Invalid format. Basic structure of all messages is: \
+			<message-ID> <command> [command arguments...] \
+			(try `0 help`)";
 
 		match try!{expect(message.read_field_as_slice(&mut self.command_buf), BASIC_STRUCTURE)} {
+			b"help" => {
+				static USAGE:&'static[u8] = b"Usage: <msg-id> help";
+
+				static HELP:&'static[u8] =
+					b"Available commands:\n\
+					<msgid> protocol {<feature> ...}    Protocol negotiation (not implemented)\n\
+					<msgid> join <channel>              Join (not implemented)\n\
+					<msgid> nick <new nick>             Set your nick to <new nick>\n\
+					<msgid> shout <statement>           Shout a statement to all connected clients";
+
+				try!{expect_end(&message, USAGE)};
+
+				let mut generator = try!{self.generator.lock()};
+				try!{generator.write_message(&[b"*", b"note", HELP])};
+				try!{generator.write_message(&[msg_id, b"ok"])};
+			},
 			b"protocol" => {
 				try!{message.ignore_rest()};
 				let mut generator = try!{self.generator.lock()};
