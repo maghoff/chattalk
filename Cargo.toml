@@ -4,5 +4,5 @@ version = "0.1.0"
 authors = ["mag"]
 
 [dependencies]
-plaintalk = "^0.0.12"
+plaintalk = "^0.0.13"
 crossbeam = "^0.1.6"

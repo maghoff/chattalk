@@ -3,7 +3,7 @@ extern crate plaintalk;
 use std::sync::{Arc,Mutex,PoisonError};
 use std::sync::mpsc::{Sender,SendError};
 use std::convert;
-use std::io::{self,Write};
+use std::io::{self,Read,Write};
 use plaintalk::pullparser::{self,PullParser};
 use plaintalk::pushgenerator::PushGenerator;
 
@@ -72,7 +72,7 @@ fn expect<T, E>(field: Result<Option<T>, E>, err: &'static [u8]) -> Result<T, Pr
 	try!(field).ok_or(ProtocolError::InvalidCommand(err))
 }
 
-fn expect_end(message: &pullparser::Message, err: &'static [u8]) -> Result<(), ProtocolError> {
+fn expect_end<R: Read>(message: &pullparser::Message<R>, err: &'static [u8]) -> Result<(), ProtocolError> {
 	match message.at_end() {
 		true => Ok(()),
 		false => Err(ProtocolError::InvalidCommand(err))
@@ -96,10 +96,10 @@ impl<T: Write> ClientConnection<T> {
 		}
 	}
 
-	fn handle_message(
+	fn handle_message<R: Read>(
 		&mut self,
 		msg_id: &[u8],
-		message: &mut pullparser::Message,
+		message: &mut pullparser::Message<R>,
 	) ->
 		Result<(), ProtocolError>
 	{
@@ -177,7 +177,7 @@ impl<T: Write> ClientConnection<T> {
 		Ok(())
 	}
 
-	pub fn handle_protocol(&mut self, mut parser: PullParser) -> Result<(), ClientError> {
+	pub fn handle_protocol<R: Read>(&mut self, mut parser: PullParser<R>) -> Result<(), ClientError> {
 		let mut msg_id_buf = [0u8; 10];
 
 		while let Some(mut message) = try!{parser.get_message()} {
