@@ -2,6 +2,7 @@ extern crate plaintalk;
 
 mod client;
 
+use std::sync::{Arc,Mutex};
 use std::io::{BufReader,BufWriter};
 use std::net::{TcpListener,TcpStream};
 use std::thread;
@@ -13,7 +14,7 @@ fn client_core(stream: TcpStream) -> Result<(), client::ClientError> {
 	let parser = PullParser::new(&mut buf_reader);
 
 	let mut buf_writer = BufWriter::new(&stream);
-	let generator = PushGenerator::new(&mut buf_writer);
+	let generator = Arc::new(Mutex::new(PushGenerator::new(&mut buf_writer)));
 
 	let mut client_connection = client::ClientConnection::new(generator);
 
@@ -36,15 +37,11 @@ fn main() {
 	for stream in listener.incoming() {
 		match stream {
 			Ok(stream) => {
-				thread::spawn(move|| {
-					handle_client(stream)
-				});
+				thread::spawn(move || { handle_client(stream) });
 			}
 			Err(e) => {
 				println!("Failed connection attempt: {:?}", e);
 			}
 		}
 	}
-
-	drop(listener);
 }
