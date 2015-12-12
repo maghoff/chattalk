@@ -72,7 +72,7 @@ fn expect<T, E>(field: Result<Option<T>, E>, err: &'static [u8]) -> Result<T, Pr
 	try!(field).ok_or(ProtocolError::InvalidCommand(err))
 }
 
-fn expect_end<R: Read>(message: &pullparser::Message<R>, err: &'static [u8]) -> Result<(), ProtocolError> {
+fn expect_end(message: &pullparser::Message, err: &'static [u8]) -> Result<(), ProtocolError> {
 	match message.at_end() {
 		true => Ok(()),
 		false => Err(ProtocolError::InvalidCommand(err))
@@ -96,10 +96,10 @@ impl<T: Write> ClientConnection<T> {
 		}
 	}
 
-	fn handle_message<R: Read>(
+	fn handle_message(
 		&mut self,
 		msg_id: &[u8],
-		message: &mut pullparser::Message<R>,
+		message: &mut pullparser::Message,
 	) ->
 		Result<(), ProtocolError>
 	{

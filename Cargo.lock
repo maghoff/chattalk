@@ -3,7 +3,7 @@ name = "chattalk"
 version = "0.1.0"
 dependencies = [
  "crossbeam 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "plaintalk 0.0.13 (registry+https://github.com/rust-lang/crates.io-index)",
+ "plaintalk 0.0.14 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -36,7 +36,7 @@ dependencies = [
 
 [[package]]
 name = "plaintalk"
-version = "0.0.13"
+version = "0.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "num 0.1.28 (registry+https://github.com/rust-lang/crates.io-index)",
