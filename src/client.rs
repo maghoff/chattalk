@@ -184,6 +184,8 @@ impl<T: Write> ClientConnection<T> {
 			let msg_id = try!{message.read_field_as_slice(&mut msg_id_buf)}
 				.expect("PlainTalk parser yielded a message with zero fields");
 
+			if msg_id == b"" && message.at_end() { break }
+
 			match self.handle_message(msg_id, &mut message) {
 				Ok(()) => (),
 				Err(ProtocolError::InvalidCommand(usage)) => {
