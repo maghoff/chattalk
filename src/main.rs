@@ -7,7 +7,7 @@ use std::io::{BufReader,BufWriter};
 use std::net::{TcpListener,TcpStream};
 use std::thread;
 use std::sync::{Arc,Mutex};
-use std::sync::mpsc::{channel,Sender};
+use std::sync::mpsc::{channel,Sender,Receiver};
 use plaintalk::pullparser::PullParser;
 use plaintalk::pushgenerator::PushGenerator;
 
@@ -63,32 +63,31 @@ pub enum ShoutMessage {
 	Shout(String, String),
 }
 
-fn main() {
-	let listener = TcpListener::bind("127.0.0.1:2203").unwrap();
-	println!("Listening to {}", listener.local_addr().unwrap());
-
-	let (tx, rx) = channel();
-	thread::spawn(move|| {
-		let mut clients = Vec::new();
-		while let Ok(message) = rx.recv() {
-			match message {
-				ShoutMessage::Join(client) => {
-					clients.push(client);
-				}
-				ShoutMessage::Shout(nick, statement) => {
-					for client in clients.iter() {
-						match client.send(ClientMessage::Shout(nick.clone(), statement.clone())) {
-							Ok(()) => (),
-							Err(_) => {
-								// Ignore errors.
-								// TODO: Remove the client from `clients`.
-							}
+fn server(rx : Receiver<ShoutMessage>) {
+	let mut clients = Vec::new();
+	while let Ok(message) = rx.recv() {
+		match message {
+			ShoutMessage::Join(client) => {
+				clients.push(client);
+			}
+			ShoutMessage::Shout(nick, statement) => {
+				for client in clients.iter() {
+					match client.send(ClientMessage::Shout(nick.clone(), statement.clone())) {
+						Ok(()) => (),
+						Err(_) => {
+							// Ignore errors.
+							// TODO: Remove the client from `clients`.
 						}
 					}
 				}
 			}
 		}
-	});
+	}
+}
+
+fn network_reader(tx : Sender<ShoutMessage>) {
+	let listener = TcpListener::bind("127.0.0.1:2203").unwrap();
+	println!("Listening to {}", listener.local_addr().unwrap());
 
 	for stream in listener.incoming() {
 		match stream {
@@ -101,4 +100,10 @@ fn main() {
 			}
 		}
 	}
+}
+
+fn main() {
+	let (tx, rx) = channel();
+	thread::spawn(move || network_reader(tx));
+	server(rx);
 }
