@@ -3,6 +3,8 @@ extern crate crossbeam;
 extern crate unix_socket;
 
 mod client;
+mod client_error;
+mod protocol_error;
 
 use std::io::{BufReader,BufWriter,Read,Write};
 use std::net::TcpListener;

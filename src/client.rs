@@ -1,70 +1,13 @@
 extern crate plaintalk;
 
-use std::sync::{Arc,Mutex,PoisonError};
-use std::sync::mpsc::{Sender,SendError};
+use std::sync::{Arc,Mutex};
+use std::sync::mpsc::Sender;
 use std::convert;
-use std::io::{self,Read,Write};
+use std::io::{Read,Write};
 use plaintalk::pullparser::{self,PullParser};
 use plaintalk::pushgenerator::PushGenerator;
-
-#[derive(Debug)]
-pub enum ClientError {
-	Io(io::Error),
-	St(&'static str),
-	PushGenerator(plaintalk::pushgenerator::Error),
-	PullParser(plaintalk::pullparser::Error),
-	PoisonError,
-	SendError,
-}
-
-impl convert::From<io::Error> for ClientError {
-	fn from(err: io::Error) -> ClientError {
-		ClientError::Io(err)
-	}
-}
-
-impl convert::From<&'static str> for ClientError {
-	fn from(err: &'static str) -> ClientError {
-		ClientError::St(err)
-	}
-}
-
-impl convert::From<plaintalk::pushgenerator::Error> for ClientError {
-	fn from(err: plaintalk::pushgenerator::Error) -> ClientError {
-		ClientError::PushGenerator(err)
-	}
-}
-
-impl convert::From<plaintalk::pullparser::Error> for ClientError {
-	fn from(err: plaintalk::pullparser::Error) -> ClientError {
-		ClientError::PullParser(err)
-	}
-}
-
-impl<T> convert::From<PoisonError<T>> for ClientError {
-	fn from(_err: PoisonError<T>) -> ClientError {
-		ClientError::PoisonError
-	}
-}
-
-impl convert::From<SendError<::ShoutMessage>> for ClientError {
-	fn from(_err: SendError<::ShoutMessage>) -> ClientError {
-		ClientError::SendError
-	}
-}
-
-enum ProtocolError {
-	InvalidCommand(&'static [u8]),
-	PlaintalkError(ClientError),
-}
-
-impl<T> convert::From<T> for ProtocolError
-	where ClientError : convert::From<T>
-{
-	fn from(err: T) -> ProtocolError {
-		ProtocolError::PlaintalkError(ClientError::from(err))
-	}
-}
+pub use client_error::ClientError;
+use protocol_error::ProtocolError;
 
 fn expect<T, E>(field: Result<Option<T>, E>, err: &'static [u8]) -> Result<T, ProtocolError>
 	where ProtocolError : convert::From<E>
