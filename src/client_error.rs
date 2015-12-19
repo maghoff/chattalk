@@ -11,6 +11,8 @@ pub enum ClientError {
 	SendError,
 }
 
+// TODO ClientError should impl std::error::Error
+
 impl convert::From<&'static str> for ClientError {
 	fn from(err: &'static str) -> ClientError {
 		ClientError::St(err)

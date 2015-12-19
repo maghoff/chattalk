@@ -6,6 +6,8 @@ pub enum ProtocolError {
 	PlaintalkError(ClientError),
 }
 
+// TODO ProtocolError should impl std::error::Error
+
 impl<T> convert::From<T> for ProtocolError
 	where ClientError : convert::From<T>
 {
