@@ -1,22 +1,14 @@
 use std::convert;
-use std::io;
 use std::sync::{self,mpsc};
 use plaintalk::{pushgenerator, pullparser};
 
 #[derive(Debug)]
 pub enum ClientError {
-	Io(io::Error),
 	St(&'static str),
 	PushGenerator(pushgenerator::Error),
 	PullParser(pullparser::Error),
 	PoisonError,
 	SendError,
-}
-
-impl convert::From<io::Error> for ClientError {
-	fn from(err: io::Error) -> ClientError {
-		ClientError::Io(err)
-	}
 }
 
 impl convert::From<&'static str> for ClientError {
