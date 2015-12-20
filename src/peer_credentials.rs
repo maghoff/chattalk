@@ -18,7 +18,7 @@ mod libc {
 }
 
 
-pub trait GetPeerUser {
+pub trait PeerCredentials {
 	fn get_peer_uid(&self) -> Result<libc::uid_t, Box<error::Error>>;
 
 	fn get_peer_user(&self) -> Result<users::User, Box<error::Error>> {
@@ -47,11 +47,11 @@ mod linux {
 	use super::*;
 	use super::{libc,cvt};
 
-	pub trait PeerCredentials {
+	pub trait UCredPeerCredentials {
 		fn get_peer_credentials(&self) -> io::Result<libc::ucred>;
 	}
 
-	impl PeerCredentials for UnixStream {
+	impl UCredPeerCredentials for UnixStream {
 		fn get_peer_credentials(&self) -> io::Result<libc::ucred> {
 			let fd = self.as_raw_fd();
 
@@ -69,7 +69,7 @@ mod linux {
 		}
 	}
 
-	impl GetPeerUser for UnixStream {
+	impl PeerCredentials for UnixStream {
 		fn get_peer_uid(&self) -> Result<libc::uid_t, Box<error::Error>> {
 			Ok(try!(self.get_peer_credentials()).uid)
 		}

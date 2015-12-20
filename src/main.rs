@@ -14,7 +14,7 @@ use std::net::TcpListener;
 use std::sync::mpsc::{channel,Sender,Receiver};
 use std::sync::{Arc,Mutex};
 use std::thread;
-use peer_credentials::GetPeerUser;
+use peer_credentials::PeerCredentials;
 use plaintalk::pullparser::PullParser;
 use plaintalk::pushgenerator::PushGenerator;
 use unix_socket::UnixListener;
