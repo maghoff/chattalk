@@ -1,9 +1,7 @@
-use std::{mem, io, error};
-use std::os::unix::io::AsRawFd;
-use unix_socket::UnixStream;
+use std::{io, error};
 use users;
 
-// Things that should exist in libc:
+// Backported from libc 0.2.3. unix_socket keeps us at 0.2.2:
 mod libc {
 	pub use libc::*;
 
@@ -19,17 +17,6 @@ mod libc {
 	pub const SO_PEERCRED: c_int = 17;
 }
 
-fn cvt(v: libc::c_int) -> io::Result<libc::c_int> {
-    if v < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(v)
-    }
-}
-
-pub trait LinuxExt {
-	fn get_peer_credentials(&self) -> io::Result<libc::ucred>;
-}
 
 pub trait GetPeerUser {
 	fn get_peer_uid(&self) -> Result<libc::uid_t, Box<error::Error>>;
@@ -43,29 +30,51 @@ pub trait GetPeerUser {
 	}
 }
 
-#[cfg(target_os = "linux")]
-impl LinuxExt for UnixStream {
-	fn get_peer_credentials(&self) -> io::Result<libc::ucred> {
-		let fd = self.as_raw_fd();
 
-		unsafe {
-			let mut credentials: libc::ucred = mem::zeroed();
-			let mut size = mem::size_of::<libc::ucred>() as libc::socklen_t;
-			try!(cvt(libc::getsockopt(
-				fd,
-				libc::SOL_SOCKET,
-				libc::SO_PEERCRED,
-				&mut credentials as *mut _ as *mut _,
-				&mut size as *mut _ as *mut _)));
-			Ok(credentials)
+fn cvt(v: libc::c_int) -> io::Result<libc::c_int> {
+    if v < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(v)
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod linux {
+	use std::{error,io,mem};
+	use std::os::unix::io::AsRawFd;
+	use unix_socket::UnixStream;
+	use super::*;
+	use super::{libc,cvt};
+
+	pub trait PeerCredentials {
+		fn get_peer_credentials(&self) -> io::Result<libc::ucred>;
+	}
+
+	impl PeerCredentials for UnixStream {
+		fn get_peer_credentials(&self) -> io::Result<libc::ucred> {
+			let fd = self.as_raw_fd();
+
+			unsafe {
+				let mut credentials: libc::ucred = mem::zeroed();
+				let mut size = mem::size_of::<libc::ucred>() as libc::socklen_t;
+				try!(cvt(libc::getsockopt(
+					fd,
+					libc::SOL_SOCKET,
+					libc::SO_PEERCRED,
+					&mut credentials as *mut _ as *mut _,
+					&mut size as *mut _ as *mut _)));
+				Ok(credentials)
+			}
+		}
+	}
+
+	impl GetPeerUser for UnixStream {
+		fn get_peer_uid(&self) -> Result<libc::uid_t, Box<error::Error>> {
+			Ok(try!(self.get_peer_credentials()).uid)
 		}
 	}
 }
 
 #[cfg(target_os = "linux")]
-impl GetPeerUser for UnixStream {
-	fn get_peer_uid(&self) -> Result<libc::uid_t, Box<error::Error>> {
-		Ok(try!(self.get_peer_credentials()).uid)
-	}
-}
-
+pub use self::linux::*;
