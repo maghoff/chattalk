@@ -1,9 +1,12 @@
-extern crate plaintalk;
 extern crate crossbeam;
+extern crate libc;
+extern crate plaintalk;
 extern crate unix_socket;
+extern crate users;
 
 mod client;
 mod client_error;
+mod peer_credentials;
 mod protocol_error;
 
 use std::io::{BufReader,BufWriter,Read,Write};
@@ -11,6 +14,7 @@ use std::net::TcpListener;
 use std::sync::mpsc::{channel,Sender,Receiver};
 use std::sync::{Arc,Mutex};
 use std::thread;
+use peer_credentials::GetPeerUser;
 use plaintalk::pullparser::PullParser;
 use plaintalk::pushgenerator::PushGenerator;
 use unix_socket::UnixListener;
@@ -44,11 +48,9 @@ fn client_core<R: Read, W: Write+Send>(read: R, write: W, tx: Sender<ShoutMessag
 		let _ = tx2.send(ClientMessage::Terminate);
 		result
 	})
-	//tx.send(ShoutMessage::Part(tx2)).unwrap();
 }
 
 fn handle_client<R: Read, W: Write+Send>(read: R, write: W, remote: &str, tx: Sender<ShoutMessage>) {
-	//let remote = stream.peer_addr().unwrap();
 	println!("{} Client connected", remote);
 
 	match client_core(read, write, tx) {
@@ -118,7 +120,7 @@ fn unix_acceptor(tx : Sender<ShoutMessage>) {
 			Ok(stream) => {
 				let tx = tx.clone();
 				thread::spawn(move || {
-					let remote = format!("{:?}", stream.peer_addr().unwrap());
+					let remote = format!("{}", stream.get_peer_user().unwrap().name);
 					handle_client(&stream, &stream, &remote, tx)
 				});
 			}
