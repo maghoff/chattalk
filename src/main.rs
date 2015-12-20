@@ -9,6 +9,7 @@ mod client_error;
 mod peer_credentials;
 mod protocol_error;
 
+use std::fs;
 use std::io::{BufReader,BufWriter,Read,Write};
 use std::net::TcpListener;
 use std::sync::mpsc::{channel,Sender,Receiver};
@@ -112,6 +113,7 @@ fn tcp_acceptor(tx : Sender<ShoutMessage>) {
 }
 
 fn unix_acceptor(tx : Sender<ShoutMessage>) {
+	let _ = fs::remove_file("socket");
 	let listener = UnixListener::bind("socket").unwrap();
 	println!("Listening to {:?}", listener.local_addr().unwrap());
 
