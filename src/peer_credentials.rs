@@ -1,5 +1,4 @@
 use std::{io, error};
-use users;
 
 // Backported from libc 0.2.3. unix_socket keeps us at 0.2.2:
 mod libc {
@@ -20,14 +19,6 @@ mod libc {
 
 pub trait PeerCredentials {
 	fn get_peer_uid(&self) -> Result<libc::uid_t, Box<error::Error>>;
-
-	fn get_peer_user(&self) -> Result<users::User, Box<error::Error>> {
-		Ok(
-			users::get_user_by_uid(
-				try!(self.get_peer_uid())
-			).unwrap() // TODO .ok_or(an Error)
-		)
-	}
 }
 
 

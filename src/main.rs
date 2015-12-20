@@ -120,7 +120,11 @@ fn unix_acceptor(tx : Sender<ShoutMessage>) {
 			Ok(stream) => {
 				let tx = tx.clone();
 				thread::spawn(move || {
-					let remote = format!("{}", stream.get_peer_user().unwrap().name);
+					let remote_uid = stream.get_peer_uid().unwrap();
+					let remote = match users::get_user_by_uid(remote_uid) {
+						Some(ucred) => format!("{}", ucred.name),
+						None => format!("{}", remote_uid),
+					};
 					handle_client(&stream, &stream, &remote, tx)
 				});
 			}
