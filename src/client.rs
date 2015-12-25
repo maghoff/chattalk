@@ -24,7 +24,6 @@ fn expect_end(message: &pullparser::Message, err: &'static [u8]) -> Result<(), P
 
 pub struct ClientConnection<T: Write> {
 	nick: String,
-	command_buf: [u8; 10],
 	generator: Arc<Mutex<PushGenerator<T>>>,
 	tx: Sender<::ShoutMessage>,
 }
@@ -33,7 +32,6 @@ impl<T: Write> ClientConnection<T> {
 	pub fn new(generator: Arc<Mutex<PushGenerator<T>>>, tx: Sender<::ShoutMessage>) -> ClientConnection<T> {
 		ClientConnection {
 			nick: String::new(),
-			command_buf: [0u8; 10],
 			generator: generator,
 			tx: tx,
 		}
@@ -51,7 +49,9 @@ impl<T: Write> ClientConnection<T> {
 			<message-ID> <command> [command arguments...] \
 			(try `0 help`)";
 
-		match try!{expect(message.read_field_as_slice(&mut self.command_buf), BASIC_STRUCTURE)} {
+		let mut command_buf = [0u8; 10];
+
+		match try!{expect(message.read_field_as_slice(&mut command_buf), BASIC_STRUCTURE)} {
 			b"help" => {
 				static USAGE:&'static[u8] = b"Usage: <msg-id> help";
 
@@ -106,6 +106,21 @@ impl<T: Write> ClientConnection<T> {
 				let mut generator = try!{self.generator.lock()};
 				try!{self.tx.send(::ShoutMessage::Shout(self.nick.clone(), statement))};
 				try!{generator.write_message(&[msg_id, b"ok"])};
+			},
+			b"auth" => {
+				static USAGE:&'static[u8] = b"Usage: <msg-id> auth <auth-method> ...";
+
+				let mut auth_method_buf = [0u8; 10];
+				match try!{expect(message.read_field_as_slice(&mut auth_method_buf), USAGE)} {
+					method => {
+						try!{message.ignore_rest()};
+						let mut generator = try!{self.generator.lock()};
+						try!{generator.write_message(&[
+							msg_id, b"error", b"unknown-method",
+							&format!("unknown authentication method: {}", String::from_utf8_lossy(method)).into_bytes()
+						])};
+					}
+				}
 			},
 			command => {
 				try!{message.ignore_rest()};
