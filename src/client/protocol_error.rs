@@ -1,5 +1,5 @@
 use std::convert;
-use client_error::ClientError;
+use super::client_error::ClientError;
 
 pub enum ProtocolError {
 	InvalidCommand(&'static [u8]),

@@ -1,6 +1,7 @@
 use std::convert;
 use std::sync::{self,mpsc};
 use plaintalk::{pushgenerator, pullparser};
+use server::ShoutMessage;
 
 #[derive(Debug)]
 pub enum ClientError {
@@ -37,8 +38,8 @@ impl<T> convert::From<sync::PoisonError<T>> for ClientError {
 	}
 }
 
-impl convert::From<mpsc::SendError<::ShoutMessage>> for ClientError {
-	fn from(_err: mpsc::SendError<::ShoutMessage>) -> ClientError {
+impl convert::From<mpsc::SendError<ShoutMessage>> for ClientError {
+	fn from(_err: mpsc::SendError<ShoutMessage>) -> ClientError {
 		ClientError::SendError
 	}
 }

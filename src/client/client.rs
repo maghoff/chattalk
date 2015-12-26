@@ -6,8 +6,9 @@ use std::convert;
 use std::io::{Read,Write};
 use plaintalk::pullparser::{self,PullParser};
 use plaintalk::pushgenerator::PushGenerator;
-pub use client_error::ClientError;
-use protocol_error::ProtocolError;
+use super::client_error::ClientError;
+use super::protocol_error::ProtocolError;
+use server::ShoutMessage;
 
 fn expect<T, E>(field: Result<Option<T>, E>, err: &'static [u8]) -> Result<T, ProtocolError>
 	where ProtocolError : convert::From<E>
@@ -25,11 +26,11 @@ fn expect_end(message: &pullparser::Message, err: &'static [u8]) -> Result<(), P
 pub struct ClientConnection<T: Write> {
 	nick: String,
 	generator: Arc<Mutex<PushGenerator<T>>>,
-	tx: Sender<::ShoutMessage>,
+	tx: Sender<ShoutMessage>,
 }
 
 impl<T: Write> ClientConnection<T> {
-	pub fn new(generator: Arc<Mutex<PushGenerator<T>>>, tx: Sender<::ShoutMessage>) -> ClientConnection<T> {
+	pub fn new(generator: Arc<Mutex<PushGenerator<T>>>, tx: Sender<ShoutMessage>) -> ClientConnection<T> {
 		ClientConnection {
 			nick: String::new(),
 			generator: generator,
@@ -101,7 +102,7 @@ impl<T: Write> ClientConnection<T> {
 		try!{expect_end(&message, USAGE)};
 
 		let mut generator = try!{self.generator.lock()};
-		try!{self.tx.send(::ShoutMessage::Shout(self.nick.clone(), statement))};
+		try!{self.tx.send(ShoutMessage::Shout(self.nick.clone(), statement))};
 		try!{generator.write_message(&[msg_id, b"ok"])};
 
 		Ok(())
@@ -140,12 +141,12 @@ impl<T: Write> ClientConnection<T> {
 		let mut command_buf = [0u8; 10];
 
 		match try!{expect(message.read_field_as_slice(&mut command_buf), BASIC_STRUCTURE)} {
+			b"auth"     => self.cmd_auth(msg_id, message),
 			b"help"     => self.cmd_help(msg_id, message),
-			b"protocol" => self.cmd_protocol(msg_id, message),
 			b"join"     => self.cmd_join(msg_id, message),
 			b"nick"     => self.cmd_nick(msg_id, message),
+			b"protocol" => self.cmd_protocol(msg_id, message),
 			b"shout"    => self.cmd_shout(msg_id, message),
-			b"auth"     => self.cmd_auth(msg_id, message),
 			command => {
 				try!{message.ignore_rest()};
 				let mut generator = try!{self.generator.lock()};
@@ -181,4 +182,43 @@ impl<T: Write> ClientConnection<T> {
 
 		Ok(())
 	}
+}
+
+use std::io::{BufReader, BufWriter};
+use std::sync::mpsc::channel;
+use crossbeam;
+
+pub enum ClientMessage {
+	Shout(String, String),
+	Terminate,
+}
+
+pub fn client<R: Read, W: Write+Send>(read: R, write: W, tx: Sender<ShoutMessage>) -> Result<(), ClientError> {
+	let parser = PullParser::new(BufReader::new(read));
+
+	let buf_writer = BufWriter::new(write);
+	let generator = Arc::new(Mutex::new(PushGenerator::new(buf_writer)));
+
+	let (tx2, rx2) = channel::<ClientMessage>();
+	tx.send(ShoutMessage::Join(tx2.clone())).unwrap();
+
+	let mut client_connection = ClientConnection::new(generator.clone(), tx);
+
+	crossbeam::scope(move |scope| {
+		scope.spawn(move || {
+			while let Ok(message) = rx2.recv() {
+				match message {
+					ClientMessage::Shout(nick, statement) => {
+						let mut generator = generator.lock().unwrap();
+						generator.write_message(&[b"*", b"shout", nick.as_bytes(), statement.as_bytes()]).unwrap();
+					}
+					ClientMessage::Terminate => return
+				}
+			}
+		});
+
+		let result = client_connection.handle_protocol(parser);
+		let _ = tx2.send(ClientMessage::Terminate);
+		result
+	})
 }
