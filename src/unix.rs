@@ -1,10 +1,32 @@
 use std::fs;
 use std::sync::mpsc::Sender;
 use std::thread;
+use client::ProtocolExtensions;
 use peer_credentials::PeerCredentials;
 use server::ShoutMessage;
+use unix_socket::{UnixStream, UnixListener};
 use users;
-use unix_socket::UnixListener;
+
+struct UnixProtocolExtensions<'a> {
+	stream: &'a UnixStream,
+}
+
+impl<'a> UnixProtocolExtensions<'a> {
+	fn new(stream: &'a UnixStream) -> UnixProtocolExtensions<'a> {
+		UnixProtocolExtensions {
+			stream: stream,
+		}
+	}
+}
+
+impl<'a> ProtocolExtensions for UnixProtocolExtensions<'a> {
+	fn supports_auth_unix(&self) -> bool { true }
+
+	fn auth_unix(&self) -> Option<String> {
+		let uid = self.stream.get_peer_uid().unwrap();
+		users::get_user_by_uid(uid).map(|ucred| ucred.name)
+	}
+}
 
 pub fn acceptor(tx : Sender<ShoutMessage>) {
 	let _ = fs::remove_file("socket");
@@ -21,7 +43,8 @@ pub fn acceptor(tx : Sender<ShoutMessage>) {
 						Some(ucred) => format!("{}", ucred.name),
 						None => format!("{}", remote_uid),
 					};
-					super::connect_client(&stream, &stream, &remote, tx)
+					let protocol_extensions = UnixProtocolExtensions::new(&stream);
+					super::connect_client(&stream, &stream, protocol_extensions, &remote, tx)
 				});
 			}
 			Err(e) => {

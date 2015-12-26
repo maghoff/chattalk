@@ -1,7 +1,15 @@
 use std::sync::mpsc::Sender;
 use std::thread;
+use client::ProtocolExtensions;
 use server::ShoutMessage;
 use std::net::TcpListener;
+
+struct TcpProtocolExtensions;
+
+impl ProtocolExtensions for TcpProtocolExtensions {
+	fn supports_auth_unix(&self) -> bool { false }
+	fn auth_unix(&self) -> Option<String> { None }
+}
 
 pub fn acceptor(tx : Sender<ShoutMessage>) {
 	let listener = TcpListener::bind("127.0.0.1:2203").unwrap();
@@ -13,7 +21,7 @@ pub fn acceptor(tx : Sender<ShoutMessage>) {
 				let tx = tx.clone();
 				thread::spawn(move || {
 					let remote = format!("{}", stream.peer_addr().unwrap());
-					super::connect_client(&stream, &stream, &remote, tx)
+					super::connect_client(&stream, &stream, TcpProtocolExtensions, &remote, tx)
 				});
 			}
 			Err(e) => {

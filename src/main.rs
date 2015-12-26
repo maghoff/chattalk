@@ -13,12 +13,16 @@ mod unix;
 use std::io::{Read,Write};
 use std::sync::mpsc::{channel,Sender};
 use std::thread;
+use client::ProtocolExtensions;
 use server::ShoutMessage;
 
-pub fn connect_client<R: Read, W: Write+Send>(read: R, write: W, remote: &str, tx: Sender<ShoutMessage>) {
+pub fn connect_client
+	<R: Read, W: Write+Send, P: ProtocolExtensions>
+	(read: R, write: W, protocol_extensions: P, remote: &str, tx: Sender<ShoutMessage>
+) {
 	println!("{} Client connected", remote);
 
-	match client::client(read, write, tx) {
+	match client::client(read, write, protocol_extensions, tx) {
 		Ok(()) => println!("{} Connection closed", remote),
 		Err(e) => println!("{} Connection terminated with error: {:?}", remote, e),
 	}

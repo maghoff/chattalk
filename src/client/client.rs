@@ -10,6 +10,13 @@ use super::client_error::ClientError;
 use super::protocol_error::ProtocolError;
 use server::ShoutMessage;
 
+
+pub trait ProtocolExtensions {
+	fn supports_auth_unix(&self) -> bool;
+	fn auth_unix(&self) -> Option<String>;
+}
+
+
 fn expect<T, E>(field: Result<Option<T>, E>, err: &'static [u8]) -> Result<T, ProtocolError>
 	where ProtocolError : convert::From<E>
 {
@@ -23,17 +30,20 @@ fn expect_end(message: &pullparser::Message, err: &'static [u8]) -> Result<(), P
 	}
 }
 
-pub struct ClientConnection<T: Write> {
+
+pub struct ClientConnection<T: Write, P: ProtocolExtensions> {
 	nick: String,
 	generator: Arc<Mutex<PushGenerator<T>>>,
+	protocol_extensions: P,
 	tx: Sender<ShoutMessage>,
 }
 
-impl<T: Write> ClientConnection<T> {
-	pub fn new(generator: Arc<Mutex<PushGenerator<T>>>, tx: Sender<ShoutMessage>) -> ClientConnection<T> {
+impl<T: Write, P: ProtocolExtensions> ClientConnection<T, P> {
+	pub fn new(generator: Arc<Mutex<PushGenerator<T>>>, protocol_extensions: P, tx: Sender<ShoutMessage>) -> ClientConnection<T, P> {
 		ClientConnection {
 			nick: String::new(),
 			generator: generator,
+			protocol_extensions: protocol_extensions,
 			tx: tx,
 		}
 	}
@@ -113,6 +123,26 @@ impl<T: Write> ClientConnection<T> {
 
 		let mut auth_method_buf = [0u8; 10];
 		match try!{expect(message.read_field_as_slice(&mut auth_method_buf), USAGE)} {
+			b"unix" => {
+				static USAGE:&'static[u8] = b"Usage: <msg-id> auth unix";
+				try!{expect_end(&message, USAGE)};
+
+				match self.protocol_extensions.auth_unix() {
+					Some(user) => {
+						let mut generator = try!{self.generator.lock()};
+						self.nick = user;
+						try!{generator.write_message(&[
+							msg_id, b"ok", &self.nick.as_bytes()
+						])};
+					}
+					None => {
+						let mut generator = try!{self.generator.lock()};
+						try!{generator.write_message(&[
+							msg_id, b"error", b"auth-failed", b"Unix authentication failed"
+						])};
+					}
+				}
+			},
 			method => {
 				try!{message.ignore_rest()};
 				let mut generator = try!{self.generator.lock()};
@@ -193,7 +223,11 @@ pub enum ClientMessage {
 	Terminate,
 }
 
-pub fn client<R: Read, W: Write+Send>(read: R, write: W, tx: Sender<ShoutMessage>) -> Result<(), ClientError> {
+pub fn client
+	<R: Read, W: Write+Send, P: ProtocolExtensions>
+	(read: R, write: W, protocol_extensions: P, tx: Sender<ShoutMessage>)
+	-> Result<(), ClientError>
+{
 	let parser = PullParser::new(BufReader::new(read));
 
 	let buf_writer = BufWriter::new(write);
@@ -202,7 +236,7 @@ pub fn client<R: Read, W: Write+Send>(read: R, write: W, tx: Sender<ShoutMessage
 	let (tx2, rx2) = channel::<ClientMessage>();
 	tx.send(ShoutMessage::Join(tx2.clone())).unwrap();
 
-	let mut client_connection = ClientConnection::new(generator.clone(), tx);
+	let mut client_connection = ClientConnection::new(generator.clone(), protocol_extensions, tx);
 
 	crossbeam::scope(move |scope| {
 		scope.spawn(move || {
